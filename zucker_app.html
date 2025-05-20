@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>ZuckerTracker</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 30px;
+      max-width: 700px;
+    }
+    input, select, button {
+      margin: 6px 0;
+      padding: 8px;
+      width: 100%;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      background: #f8f8f8;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    .entry {
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ZuckerTracker 🍭</h1>
+
+  <div class="section">
+    <h2>Neuen Eintrag hinzufügen</h2>
+    <input id="produkt" placeholder="Produkt oder Barcode" />
+    <input id="zucker" type="number" placeholder="Zuckermenge (g)" />
+    <select id="energie">
+      <option value="">Energielevel wählen</option>
+      <option value="hoch">hoch</option>
+      <option value="mittel">mittel</option>
+      <option value="niedrig">niedrig</option>
+    </select>
+    <button onclick="eintragHinzufuegen()">Eintrag speichern</button>
+  </div>
+
+  <div class="section">
+    <h2>Tagesbericht</h2>
+    <button onclick="zeigeTagesbericht()">Bericht anzeigen</button>
+    <div id="tagesbericht" class="entry"></div>
+  </div>
+
+  <div class="section">
+    <h2>Verlaufsbericht</h2>
+    <button onclick="zeigeVerlauf()">Letzte 7 Tage</button>
+    <div id="verlauf" class="entry"></div>
+  </div>
+
+  <div class="section">
+    <h2>Ziel setzen</h2>
+    <input id="ziel" type="number" placeholder="Tägliches Ziel (g)" />
+    <input id="limit" type="number" placeholder="Max. Tageslimit (g)" />
+    <button onclick="zielSetzen()">Ziel speichern</button>
+  </div>
+
+  <div class="section">
+    <h2>⚠️ Alle Daten löschen</h2>
+    <button onclick="datenLoeschen()">Alle Daten löschen</button>
+  </div>
+
+  <script>
+    const standardDaten = {
+      eintraege: [],
+      ziel: 50,
+      max_tageslimit: 100
+    };
+
+    function ladeDaten() {
+      const daten = localStorage.getItem("zuckertracker");
+      return daten ? JSON.parse(daten) : { ...standardDaten };
+    }
+
+    function speichereDaten(daten) {
+      localStorage.setItem("zuckertracker", JSON.stringify(daten));
+    }
+
+    function heutigesDatum() {
+      return new Date().toISOString().split("T")[0];
+    }
+
+    function eintragHinzufuegen() {
+      const produkt = document.getElementById("produkt").value;
+      const zucker = parseFloat(document.getElementById("zucker").value);
+      const energie = document.getElementById("energie").value;
+      if (!produkt || isNaN(zucker) || !energie) {
+        alert("Bitte alle Felder ausfüllen.");
+        return;
+      }
+
+      const daten = ladeDaten();
+      daten.eintraege.push({
+        datum: heutigesDatum(),
+        produkt,
+        zucker,
+        energie
+      });
+
+      speichereDaten(daten);
+      alert("Eintrag gespeichert!");
+      document.getElementById("produkt").value = "";
+      document.getElementById("zucker").value = "";
+      document.getElementById("energie").value = "";
+    }
+
+    function zeigeTagesbericht() {
+      const daten = ladeDaten();
+      const heute = heutigesDatum();
+      const eintraegeHeute = daten.eintraege.filter(e => e.datum === heute);
+      const summe = eintraegeHeute.reduce((acc, e) => acc + e.zucker, 0);
+
+      let bericht = `<p><strong>Gesamtzucker heute:</strong> ${summe.toFixed(1)} g</p>`;
+      bericht += `<p>Ziel: ${daten.ziel} g | Max: ${daten.max_tageslimit} g</p>`;
+
+      eintraegeHeute.forEach(e => {
+        bericht += `<p>– ${e.produkt}: ${e.zucker} g | Energie: ${e.energie}</p>`;
+      });
+
+      if (summe > daten.max_tageslimit) {
+        bericht += "<p style='color:red;'>⚠️ Du hast dein Tageslimit überschritten!</p>";
+      } else if (summe > daten.ziel) {
+        bericht += "<p style='color:orange;'>🔸 Ziel überschritten, aber unter dem Limit.</p>";
+      }
+
+      document.getElementById("tagesbericht").innerHTML = bericht;
+    }
+
+    function zeigeVerlauf() {
+      const daten = ladeDaten();
+      const tage = {};
+
+      daten.eintraege.forEach(e => {
+        if (!tage[e.datum]) tage[e.datum] = [];
+        tage[e.datum].push(e);
+      });
+
+      const letzteTage = Object.keys(tage).sort().slice(-7);
+      let verlauf = "";
+
+      letzteTage.forEach(datum => {
+        const total = tage[datum].reduce((sum, e) => sum + e.zucker, 0);
+        verlauf += `<p>${datum}: ${total.toFixed(1)} g</p>`;
+      });
+
+      document.getElementById("verlauf").innerHTML = verlauf;
+    }
+
+    function zielSetzen() {
+      const ziel = parseFloat(document.getElementById("ziel").value);
+      const limit = parseFloat(document.getElementById("limit").value);
+      if (isNaN(ziel) || isNaN(limit)) {
+        alert("Bitte gültige Zahlen eingeben.");
+        return;
+      }
+
+      const daten = ladeDaten();
+      daten.ziel = ziel;
+      daten.max_tageslimit = limit;
+      speichereDaten(daten);
+      alert("Ziel und Limit aktualisiert!");
+    }
+
+    function datenLoeschen() {
+      if (confirm("Bist du sicher, dass du alle Daten löschen möchtest?")) {
+        localStorage.removeItem("zuckertracker");
+        alert("Alle Daten wurden gelöscht.");
+        location.reload();
+      }
+    }
+  </script>
+
+</body>
+</html>
