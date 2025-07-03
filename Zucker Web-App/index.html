@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>ZuckerTracker</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 30px;
+      max-width: 700px;
+    }
+    input, select, button {
+      margin: 6px 0;
+      padding: 8px;
+      width: 100%;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      background: #f8f8f8;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    .entry {
+      margin-left: 10px;
+    }
+    .hide {
+      display: none;
+    }
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+    }
+  </style>
+  <!-- Chart.js laden -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="fetch-data.js"></script>
+</head>
+<body>
+  <div class="section">
+    <h2>Wie möchtest du starten?</h2>
+    <button onclick="startScanner()">📷 Barcode-Scanner</button>
+    <button onclick="zeigeManuelleEingabe()">✍️ Manuelle Eingabe</button>
+  </div>
+
+  <div id="input" class="hide">
+    <h1>ZuckerTracker 🍭</h1>
+
+    <div class="section">
+      <h2>Neuen Eintrag hinzufügen</h2>
+      <input id="produkt" placeholder="Produkt oder Barcode" />
+      <input id="zucker" type="number" placeholder="Zuckermenge (g)" />
+      <select id="energie">
+        <option value="">Energielevel wählen</option>
+        <option value="hoch">hoch</option>
+        <option value="mittel">mittel</option>
+        <option value="niedrig">niedrig</option>
+      </select>
+      <button onclick="eintragHinzufuegen()">Eintrag speichern</button>
+    </div>
+
+    <div class="section">
+      <h2>Tagesbericht</h2>
+      <button onclick="zeigeTagesbericht()">Bericht anzeigen</button>
+      <div id="tagesbericht" class="entry"></div>
+    </div>
+
+    <div class="section">
+      <h2>Verlaufsbericht</h2>
+      <button onclick="zeigeVerlauf()">Letzte 7 Tage</button>
+      <div id="verlauf" class="entry"></div>
+    </div>
+
+    <div class="section">
+      <h2>Zuckerkonsum Grafik</h2>
+      <select onchange="zeigeDiagramm(parseInt(this.value))">
+        <option value="7" selected>Letzte 7 Tage</option>
+        <option value="30">Letzte 30 Tage</option>
+        <option value="90">Letzte 90 Tage</option>
+      </select>
+      <canvas id="zuckerChart"></canvas>
+    </div>
+
+    <div class="section">
+      <h2>Ziel setzen</h2>
+      <input id="ziel" type="number" placeholder="Tägliches Ziel (g)" />
+      <input id="limit" type="number" placeholder="Max. Tageslimit (g)" />
+      <button onclick="zielSetzen()">Ziel speichern</button>
+    </div>
+
+    <div class="section">
+      <h2>⚠️ Alle Daten löschen</h2>
+      <button onclick="datenLoeschen()">Alle Daten löschen</button>
+    </div>
+  </div>
+
+  <div id="scan" class="container hide">
+    <h2>EAN Barcode Scanner</h2>
+    <div id="interactive" class="viewport"></div>
+    <div id="result">Scan a barcode...</div>
+    <button class="restart-btn" onclick="startScanner()">Restart Scan</button>
+  </div>
+
+  <!-- QuaggaJS laden -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <script>
+    // Scanner & UI Logik
+    const resultEl = document.getElementById('result');
+
+    function startScanner() {
+      document.getElementById('scan').classList.remove('hide');
+      document.getElementById('input').classList.add('hide');
+
+      Quagga.init({
+        inputStream: {
+          type: "LiveStream",
+          constraints: {
+            facingMode: "environment",
+          },
+          target: document.querySelector('#interactive')
+        },
+        decoder: {
+          readers: ["ean_reader", "ean_8_reader"]
+        },
+        locate: true
+      }, function(err) {
+        if (err) {
+          console.error(err);
+          resultEl.textContent = "Error starting the scanner.";
+          return;
+        }
+        Quagga.start();
+      });
+
+      Quagga.onDetected(data => {
+        const code = data.codeResult.code;
+        resultEl.textContent = `${code}`;
+        document.getElementById('produkt').value = code;
+          
+        // Check if spreadsheet table was loaded
+        if(tableValue != []) {
+            let lastScannedProduct = getSpreadsheetData(code);
+
+            // check if scanned product matches data in the table
+              if (lastScannedProduct[0] != undefined) {
+              document.getElementById('produkt').value = lastScannedProduct[1];
+              document.getElementById('zucker').value = convertToDecimal(lastScannedProduct[3]);
+            }
+        }
+
+        Quagga.stop();
+        document.getElementById('scan').classList.add('hide');
+        document.getElementById('input').classList.remove('hide');
+      });
+    }
+     
+    // Fill in sugar value if barcode number matches data array from spreadsheet
+    document.getElementById('produkt').addEventListener('input', function () {
+        const inputValue = this.value;
+        const result = document.getElementById('result');
+        const val = getSpreadsheetData(inputValue)[3];
+        
+        if (val != undefined) {
+            document.getElementById('zucker').setAttribute('value', convertToDecimal(val));
+        } else {
+            document.getElementById('zucker').removeAttribute('value');
+        }
+    });
+      
+    function getSpreadsheetData(id) {
+        for(let row of tableValue) {
+            if(row[0] == id) {
+                return row;
+            }
+        }
+        return [];
+    }
+      
+    function convertToDecimal(value) {
+      if (typeof value === 'string') {
+        value = value.replace(',', '.');
+      }
+      return parseFloat(value);
+    }
+
+    function zeigeManuelleEingabe() {
+      document.getElementById('input').classList.remove('hide');
+      document.getElementById('scan').classList.add('hide');
+    }
+
+    // Datenmanagement
+    const standardDaten = {
+      eintraege: [],
+      ziel: 50,
+      max_tageslimit: 100
+    };
+
+    function ladeDaten() {
+      const daten = localStorage.getItem("zuckertracker");
+      return daten ? JSON.parse(daten) : { ...standardDaten };
+    }
+
+    function speichereDaten(daten) {
+      localStorage.setItem("zuckertracker", JSON.stringify(daten));
+    }
+
+    function heutigesDatum() {
+      return new Date().toISOString().split("T")[0];
+    }
+
+    function eintragHinzufuegen() {
+      let produkt = document.getElementById("produkt").value.trim();
+      const zucker = parseFloat(document.getElementById("zucker").value);
+      const energie = document.getElementById("energie").value;
+
+      if (!produkt || isNaN(zucker) || !energie) {
+        alert("Bitte alle Felder ausfüllen.");
+        return;
+      }
+
+      const daten = ladeDaten();
+      daten.eintraege.push({
+        datum: heutigesDatum(),
+        produkt,
+        zucker,
+        energie
+      });
+        
+      // Send data to spreadsheet
+      let barcode = null;
+        
+      if(/^\d+$/.test(produkt)) {
+          barcode = produkt;
+          produkt = '';
+      }
+      writeToSpreadsheet(barcode,produkt,null,zucker);
+
+      speichereDaten(daten);
+      alert("Eintrag gespeichert!");
+      document.getElementById("produkt").value = "";
+      document.getElementById("zucker").value = "";
+      document.getElementById("energie").value = "";
+      zeigeTagesbericht();
+      zeigeVerlauf();
+      zeigeDiagramm(parseInt(document.querySelector('select').value) || 7);
+        
+    }
+
+    function zeigeTagesbericht() {
+      const daten = ladeDaten();
+      const heute = heutigesDatum();
+      const eintraegeHeute = daten.eintraege.filter(e => e.datum === heute);
+      const summe = eintraegeHeute.reduce((acc, e) => acc + e.zucker, 0);
+
+      let bericht = `<p><strong>Gesamtzucker heute:</strong> ${summe.toFixed(1)} g</p>`;
+      bericht += `<p>Ziel: ${daten.ziel} g | Max: ${daten.max_tageslimit} g</p>`;
+
+      eintraegeHeute.forEach(e => {
+        bericht += `<p>– ${e.produkt}: ${e.zucker} g | Energie: ${e.energie}</p>`;
+      });
+
+      if (summe > daten.max_tageslimit) {
+        bericht += "<p style='color:red;'>⚠️ Du hast dein Tageslimit überschritten!</p>";
+      } else if (summe > daten.ziel) {
+        bericht += "<p style='color:orange;'>🔸 Ziel überschritten, aber unter dem Limit.</p>";
+      }
+
+      document.getElementById("tagesbericht").innerHTML = bericht;
+    }
+
+    function zeigeVerlauf() {
+      const daten = ladeDaten();
+      const tage = {};
+
+      daten.eintraege.forEach(e => {
+        if (!tage[e.datum]) tage[e.datum] = [];
+        tage[e.datum].push(e);
+      });
+
+      const letzteTage = Object.keys(tage).sort().slice(-7);
+      let verlauf = "";
+
+      letzteTage.forEach(datum => {
+        const total = tage[datum].reduce((sum, e) => sum + e.zucker, 0);
+        verlauf += `<p>${datum}: ${total.toFixed(1)} g</p>`;
+      });
+
+      document.getElementById("verlauf").innerHTML = verlauf;
+    }
+
+    function zielSetzen() {
+      const ziel = parseFloat(document.getElementById("ziel").value);
+      const limit = parseFloat(document.getElementById("limit").value);
+
+      if (isNaN(ziel) || isNaN(limit)) {
+        alert("Bitte gültige Zahlen eingeben.");
+        return;
+      }
+
+      const daten = ladeDaten();
+      daten.ziel = ziel;
+      daten.max_tageslimit = limit;
+      speichereDaten(daten);
+      alert("Ziel und Limit aktualisiert!");
+    }
+
+    function datenLoeschen() {
+      if (confirm("Bist du sicher, dass du alle Daten löschen möchtest?")) {
+        localStorage.removeItem("zuckertracker");
+        alert("Alle Daten wurden gelöscht.");
+        location.reload();
+      }
+    }
+
+    // Chart.js Grafik
+    let zuckerChart;
+
+    function zeigeDiagramm(tage) {
+      const daten = ladeDaten();
+      const jetzt = new Date();
+      const labels = [];
+      const zuckerwerte = [];
+
+      for (let i = tage - 1; i >= 0; i--) {
+        const datum = new Date(jetzt);
+        datum.setDate(jetzt.getDate() - i);
+        const datumStr = datum.toISOString().split("T")[0];
+        labels.push(datumStr);
+
+        const summe = daten.eintraege
+          .filter(e => e.datum === datumStr)
+          .reduce((acc, e) => acc + e.zucker, 0);
+        zuckerwerte.push(summe);
+      }
+
+      const ctx = document.getElementById('zuckerChart').getContext('2d');
+
+      if (zuckerChart) {
+        zuckerChart.destroy();
+      }
+
+      zuckerChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Zucker in Gramm',
+            data: zuckerwerte,
+            borderColor: 'rgba(255, 99, 132, 1)',
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          scales: {
+            y: {
+              beginAtZero: true,
+              suggestedMax: Math.max(...zuckerwerte, 50)
+            }
+          }
+        }
+      });
+    }
+
+    // Beim Laden: Manuelle Eingabe anzeigen, Tagesbericht & Grafik aktualisieren
+    window.addEventListener('load', () => {
+      zeigeManuelleEingabe();
+      zeigeTagesbericht();
+      zeigeVerlauf();
+      zeigeDiagramm(7);
+    });
+      
+      
+   // Write data to spreadsheet
+      
+    function writeToSpreadsheet(i,n,a,s) {
+     
+        const body = JSON.stringify({
+            id: i,
+            name: n,
+            amount: a,
+            sugar: s
+          });
+         fetch('https://script.google.com/macros/s/AKfycbyXGn9fPXgmWdtsfLSArFfT_2PlVA4eg2fmtjx4ZtqwLLmMUIFoufE4CbIqnl87NUmC/exec', {
+                method: "POST",
+                mode: "no-cors",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Content-Length": body.length,
+                  "Host": "script.google.com",
+                },
+                body: body
+            })
+            .then(response => response.text())
+            .then(result => console.log(result));
+        
+    }
+  </script>
+</body>
+</html>
